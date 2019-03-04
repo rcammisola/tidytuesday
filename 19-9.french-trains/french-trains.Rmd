@@ -1,6 +1,6 @@
 ---
 title: "French trains"
-output: md_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
