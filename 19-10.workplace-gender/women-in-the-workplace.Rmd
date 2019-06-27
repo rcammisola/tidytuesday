@@ -1,0 +1,210 @@
+---
+title: "Untitled"
+output: github_document
+---
+
+```{r load-libs-and-data}
+library(tidyverse)
+library(scales)
+library(ggalt)
+library(gridExtra)
+library(grid)
+
+theme_set(theme_minimal())
+
+jobs_gender <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-03-05/jobs_gender.csv")
+earnings_female <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-03-05/earnings_female.csv") 
+employed_gender <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-03-05/employed_gender.csv") 
+```
+
+```{r view-datasets}
+jobs_gender %>% View(title = "jobs gender")
+employed_gender %>% View("employed over time")
+earnings_female %>% View(title = "earnings")
+```
+
+
+## Employed over time
+
+This looks like the simplest dataset, so will start here for some high level overviews.
+
+```{r}
+employed_gender %>% 
+  mutate(date = as.Date(paste(year, 1, 1, sep="/"))) %>% 
+  ggplot(aes(date, total_full_time)) +
+  geom_line() +
+  geom_line(aes(date, full_time_female), colour="red") +
+  geom_line(aes(date, full_time_male), colour="blue") +
+  expand_limits(y = 0)
+```
+
+```{r}
+employed_gender %>% 
+  mutate(
+    date = as.Date(paste(year, 1, 1, sep="/")),
+    employment_gap = full_time_male-full_time_female
+  ) %>% 
+  ggplot() +
+  geom_line(aes(date, employment_gap/100)) +
+  expand_limits(y=0) +
+  scale_y_continuous(labels = percent_format())
+```
+
+
+```{r}
+
+
+employed_gender %>% 
+  mutate(
+    date = as.Date(paste(year, 1, 1, sep="/")),
+    employment_gap = full_time_male-full_time_female
+  ) %>% 
+  ggplot() +
+  geom_segment(
+    aes(x=date, xend=date, y=full_time_male, yend=full_time_female),
+    size = 1.2, arrow = arrow(length = unit(0.1, "inches"))
+  ) +
+  expand_limits(y=0)
+  # scale_y_continuous(labels = percent_format())
+```
+
+
+# Earnings gender
+
+```{r}
+earnings_female %>% 
+  mutate(
+    year = Year,
+    date = as.Date(paste(year, 1, 1, sep="/"))
+  ) %>% 
+  ggplot(aes(date, percent, colour = group)) +
+  geom_line() +
+  expand_limits(y = 0)
+```
+
+
+# Jobs for gender
+
+```{r}
+jobs_gender %>% 
+  mutate(
+    gender_gap = percent_female - 50,
+    major_category = fct_reorder(major_category, percent_female)
+  ) %>% 
+  ggplot(aes(major_category, percent_female)) +
+  geom_boxplot() +
+  coord_flip()
+```
+
+### Looking at just 'Computer and mathematical' jobs
+
+```{r}
+jobs_gender %>%
+  mutate(
+    overall_avg_percent_female = mean(percent_female),
+    overall_median_percent_female = median(percent_female)
+  ) %>%
+  filter(minor_category == 'Computer and mathematical') %>% 
+  mutate(
+    occupation = fct_lump(occupation, n=5, w = total_workers)
+  ) %>% 
+  group_by(year, occupation) %>% 
+  summarise(
+    percent_female = mean(percent_female)
+  ) %>% 
+  ggplot(aes(year, percent_female, colour = occupation)) +
+    geom_line()
+  
+jobs_gender %>%
+  mutate(
+    overall_avg_percent_female = mean(percent_female)
+  ) %>% 
+  filter(minor_category == 'Computer and mathematical') %>% 
+  mutate(
+    occupation = fct_lump(occupation, n=5, w = total_workers)
+  ) %>% 
+  group_by(year, occupation) %>% 
+  summarise(
+    total_workers = sum(total_workers, na.rm = TRUE),
+    percent_female = mean(percent_female, na.rm = TRUE),
+    overall_avg_percent_female = max(overall_avg_percent_female)  ## Get the overall population average
+  ) %>% 
+  ggplot(aes(year, percent_female, fill = occupation)) +
+  geom_col(show.legend = FALSE) +
+  geom_hline(aes(yintercept = overall_avg_percent_female), linetype = 'dashed') + 
+  scale_y_continuous(labels=comma_format()) +
+  facet_wrap(~occupation, labeller = labeller(occupation = label_wrap_gen(30)))
+```
+
+
+
+```{r}
+pay_gap_data <- jobs_gender %>%
+  filter(minor_category == 'Computer and mathematical') %>% 
+  mutate(occupation = fct_recode(occupation, "Computer, all other" = "Computer , all other")) %>%
+  group_by(occupation) %>% 
+  summarise(
+    total_workers = sum(total_workers, na.rm = TRUE),
+    total_earnings_male = median(total_earnings_male, na.rm = TRUE),
+    total_earnings_female = median(total_earnings_female, na.rm = TRUE)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    occupation = fct_reorder(occupation, total_earnings_female)
+  ) 
+
+total_workers_bar <- pay_gap_data %>%
+  ggplot(aes(occupation, total_workers)) +
+  geom_col(fill = "azure3") +
+  scale_y_continuous(breaks = c(0, 2e6, 4e6), labels = c("0", "2m", "4m")) +
+  coord_flip() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(size=8, colour = "#444444"),
+    panel.grid = element_blank()
+  ) +
+  labs(
+    title = "",
+    subtitle = "",
+    caption = "",
+    y = "Total workers", 
+    x = ""
+  )
+
+pay_dumbbell_plot <- pay_gap_data %>% 
+  ggplot(aes(x=total_earnings_female, xend=total_earnings_male, y=occupation)) +
+  geom_dumbbell(
+    size = 1.5, colour="azure2",
+    colour_x = "darkgoldenrod1", colour_xend = "deepskyblue4"
+  ) +
+  theme(
+    plot.title = element_text(
+      hjust = 0.815,
+      color = "#444444"
+    ),
+    plot.subtitle = element_text(
+      hjust = -24.4, 
+      size = 10, 
+      color = "#444444", 
+      face = "bold"
+    ),
+    plot.caption = element_text(size = 9, colour = "#444444", hjust = -28),
+    panel.grid.major = element_line(size = .3),
+    panel.grid.minor = element_line(size = .1)
+  ) +
+  scale_x_continuous(labels = dollar_format()) +
+  labs(
+    title = "Median earnings across occupations in Computing and Mathematical category",
+    subtitle = "Gap and total workers (2013-2016)",
+    caption = "Data: US Census Bureau | @rcammisola",
+    y = "", 
+    x = ""
+  ) +
+  annotate("text", x = 80000, y = "Actuaries", label="Women", size=3, fontface="bold", colour="darkgoldenrod1") +
+  annotate("text", x = 122000, y = "Actuaries", label="Men", size=3, fontface="bold", colour="deepskyblue4")
+
+grid.arrange(pay_dumbbell_plot, total_workers_bar, nrow = 1, widths = c(4, 1))
+```
+
+
+
